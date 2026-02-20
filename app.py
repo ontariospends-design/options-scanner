@@ -16,6 +16,7 @@ from fetcher import YFinanceClient, BROAD_SCAN_TICKERS, VIX_TICKER
 from analyzer import compute_signals, put_call_summary, top_unusual, AnalysisConfig
 from pnl import pnl_summary, pnl_at_expiry, time_to_expiry
 from strategy import StrategyEngine, PaperLedger
+from darkpool import fetch_institutional_flow, large_block_summary, combined_score
 
 st.set_page_config(
     page_title="Options Unusual Volume Scanner",
@@ -216,6 +217,12 @@ if run_scan:
     pc_df       = put_call_summary(analyzed_df)
     unusual_df  = top_unusual(analyzed_df, n=200)
 
+    # Dark pool / institutional flow
+    scan_tickers_no_vix = [t for t in tickers if t != VIX_TICKER]
+    dp_inst_df  = fetch_institutional_flow(scan_tickers_no_vix)
+    dp_block_df = large_block_summary(analyzed_df)
+    dp_combined = combined_score(dp_inst_df, dp_block_df)
+
     st.session_state["scan_results"] = {
         "analyzed_df": analyzed_df,
         "unusual_df":  unusual_df,
@@ -224,6 +231,9 @@ if run_scan:
         "expiry_str":  expiry_str,
         "tickers":     tickers,
         "errors":      errors,
+        "dp_inst_df":  dp_inst_df,
+        "dp_block_df": dp_block_df,
+        "dp_combined": dp_combined,
     }
 
 # ── Load from cache ────────────────────────────────────────────────────────────
@@ -235,6 +245,9 @@ spot_prices = res["spot_prices"]
 expiry_str  = res["expiry_str"]
 tickers     = res["tickers"]
 scan_errors = res["errors"]
+dp_inst_df  = res.get("dp_inst_df",  pd.DataFrame())
+dp_block_df = res.get("dp_block_df", pd.DataFrame())
+dp_combined = res.get("dp_combined", pd.DataFrame())
 
 if scan_errors:
     with st.expander(f"⚠️ {len(scan_errors)} fetch warning(s)"):
@@ -408,6 +421,135 @@ if not unusual_df.empty and "strike" in unusual_df.columns:
             st.info("Spot price or IV not available for this contract.")
 else:
     st.info("Run a scan to enable P&L analysis.")
+
+st.divider()
+
+# ── Dark Pool & Institutional Flow ──────────────────────────────────
+st.subheader("🏦 Dark Pool & Institutional Flow")
+st.caption("Short interest, institutional ownership, and large block options activity — proxies for smart money positioning.")
+
+dp_tab1, dp_tab2, dp_tab3 = st.tabs(["Short Interest & Institutions", "Large Block Options", "Combined View"])
+
+with dp_tab1:
+    if dp_inst_df.empty:
+        st.info("No institutional data available (ETF-only scan or data unavailable).")
+    else:
+        # Metric cards for top signals
+        bearish = dp_inst_df[dp_inst_df["smart_money_bias"] == "BEARISH"]
+        bullish = dp_inst_df[dp_inst_df["smart_money_bias"] == "BULLISH"]
+        di1, di2, di3 = st.columns(3)
+        di1.metric("🔴 Bearish signals", len(bearish),
+                   ", ".join(bearish["ticker"].tolist()) if not bearish.empty else "none")
+        di2.metric("🟢 Bullish signals", len(bullish),
+                   ", ".join(bullish["ticker"].tolist()) if not bullish.empty else "none")
+        avg_inst = dp_inst_df["institutional_pct"].dropna().mean()
+        di3.metric("Avg Institutional Ownership", f"{avg_inst:.1f}%" if pd.notna(avg_inst) else "N/A")
+
+        # Table
+        inst_display = dp_inst_df[[
+            "ticker", "signal", "short_pct_float", "short_ratio",
+            "short_change_pct", "institutional_pct", "insider_pct",
+        ]].copy()
+        st.dataframe(
+            inst_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ticker":            st.column_config.TextColumn("Ticker"),
+                "signal":            st.column_config.TextColumn("Signal"),
+                "short_pct_float":   st.column_config.NumberColumn("Short % Float", format="%.2f%%"),
+                "short_ratio":       st.column_config.NumberColumn("Days to Cover", format="%.1f"),
+                "short_change_pct":  st.column_config.NumberColumn("Short Δ MoM", format="%+.1f%%"),
+                "institutional_pct": st.column_config.NumberColumn("Inst. Owned %", format="%.1f%%"),
+                "insider_pct":       st.column_config.NumberColumn("Insider %", format="%.2f%%"),
+            },
+        )
+
+        # Short interest bar chart
+        plot_si = dp_inst_df.dropna(subset=["short_pct_float"]).copy()
+        if not plot_si.empty:
+            import plotly.express as px
+            fig_si = px.bar(
+                plot_si, x="ticker", y="short_pct_float",
+                color="short_change_pct",
+                color_continuous_scale=["green", "white", "red"],
+                color_continuous_midpoint=0,
+                text="short_pct_float",
+                title="Short Interest % of Float (color = MoM change)",
+                labels={"short_pct_float": "Short % Float", "ticker": "Ticker"},
+            )
+            fig_si.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+            fig_si.add_hline(y=5, line_dash="dot", line_color="orange",
+                             annotation_text="5% threshold")
+            fig_si.add_hline(y=10, line_dash="dot", line_color="red",
+                             annotation_text="High short (10%)")
+            st.plotly_chart(fig_si, use_container_width=True)
+
+with dp_tab2:
+    if dp_block_df.empty:
+        st.info("No large block options activity found in this scan.")
+    else:
+        for _, r in dp_block_df.iterrows():
+            pc_disp = f"{r['block_pc_ratio']:.2f}" if pd.notna(r.get('block_pc_ratio')) else "N/A"
+            notional = r.get('notional_est', 0) or 0
+            with st.container(border=True):
+                bc1, bc2, bc3, bc4, bc5 = st.columns([2, 1, 1, 1, 2])
+                bc1.markdown(f"**{r['ticker']}** &nbsp; {r['block_bias']}")
+                bc2.metric("Call Blocks", f"{r['call_block_vol']:,}")
+                bc3.metric("Put Blocks",  f"{r['put_block_vol']:,}")
+                bc4.metric("Block P/C",   pc_disp)
+                bc5.metric("Est. Notional", f"${notional:,.0f}")
+                details = []
+                if pd.notna(r.get("top_call_strike")):
+                    details.append(f"Top CALL block @ **${r['top_call_strike']}**")
+                if pd.notna(r.get("top_put_strike")):
+                    details.append(f"Top PUT block @ **${r['top_put_strike']}**")
+                if details:
+                    st.caption(" · ".join(details))
+
+        # Block flow bar chart
+        block_melt = dp_block_df[["ticker", "call_block_vol", "put_block_vol"]].melt(
+            id_vars="ticker", var_name="type", value_name="volume"
+        )
+        block_melt["type"] = block_melt["type"].map({"call_block_vol": "CALL", "put_block_vol": "PUT"})
+        fig_block = px.bar(
+            block_melt, x="ticker", y="volume", color="type",
+            barmode="group",
+            color_discrete_map={"CALL": "green", "PUT": "red"},
+            title="Large Block Options Volume by Ticker",
+            labels={"volume": "Block Volume", "ticker": "Ticker", "type": "Type"},
+        )
+        st.plotly_chart(fig_block, use_container_width=True)
+
+with dp_tab3:
+    if dp_combined.empty:
+        st.info("Run a scan with equity tickers to see combined view.")
+    else:
+        # Show combined readable table
+        cols_to_show = [c for c in [
+            "ticker", "signal", "short_pct_float", "short_change_pct",
+            "institutional_pct", "block_bias", "total_block_vol",
+            "block_pc_ratio", "notional_est",
+        ] if c in dp_combined.columns]
+        st.dataframe(
+            dp_combined[cols_to_show],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "short_pct_float":   st.column_config.NumberColumn("Short %", format="%.2f%%"),
+                "short_change_pct":  st.column_config.NumberColumn("Short Δ", format="%+.1f%%"),
+                "institutional_pct": st.column_config.NumberColumn("Inst. %", format="%.1f%%"),
+                "total_block_vol":   st.column_config.NumberColumn("Block Vol"),
+                "block_pc_ratio":    st.column_config.NumberColumn("Block P/C", format="%.2f"),
+                "notional_est":      st.column_config.NumberColumn("Notional", format="$%d"),
+            },
+        )
+
+        st.caption(
+            "ℹ️ Short interest data: monthly (FINRA/Yahoo Finance) · "
+            "Block options: real-time from this scan · "
+            "Institutional ownership: quarterly 13F filings"
+        )
 
 st.divider()
 
