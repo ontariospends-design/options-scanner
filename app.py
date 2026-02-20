@@ -28,16 +28,63 @@ st.caption("Scan for unusual options activity on a target expiration date — po
 with st.sidebar:
     st.header("⚙️ Configuration")
 
-    # Default to next Monday (Feb 19 → Feb 23, 2026)
+    # ── CBOE 2026 expiration calendar ─────────────────────────────────────────
     today = date.today()
-    days_to_monday = (7 - today.weekday()) % 7 or 7
-    next_monday = today + timedelta(days=days_to_monday)
 
-    target_expiry = st.date_input(
+    # Standard monthly (3rd Friday), VIX Wednesday, Quarter-end
+    CBOE_2026 = [
+        ("Jan 16 — Monthly (3rd Fri)",   date(2026,  1, 16)),
+        ("Feb 20 — Monthly (3rd Fri)",   date(2026,  2, 20)),
+        ("Feb 18 — VIX Expiry (Wed)",    date(2026,  2, 18)),
+        ("Mar 18 — VIX Expiry (Wed)",    date(2026,  3, 18)),
+        ("Mar 20 — Monthly (3rd Fri)",   date(2026,  3, 20)),
+        ("Mar 31 — Quarter-End",         date(2026,  3, 31)),
+        ("Apr 15 — VIX Expiry (Wed)",    date(2026,  4, 15)),
+        ("Apr 17 — Monthly (3rd Fri)",   date(2026,  4, 17)),
+        ("May 15 — Monthly (3rd Fri)",   date(2026,  5, 15)),
+        ("May 20 — VIX Expiry (Wed)",    date(2026,  5, 20)),
+        ("Jun 17 — VIX Expiry (Wed)",    date(2026,  6, 17)),
+        ("Jun 19 — Monthly (3rd Fri)",   date(2026,  6, 19)),
+        ("Jun 30 — Quarter-End",         date(2026,  6, 30)),
+        ("Jul 15 — VIX Expiry (Wed)",    date(2026,  7, 15)),
+        ("Jul 17 — Monthly (3rd Fri)",   date(2026,  7, 17)),
+        ("Aug 19 — VIX Expiry (Wed)",    date(2026,  8, 19)),
+        ("Aug 21 — Monthly (3rd Fri)",   date(2026,  8, 21)),
+        ("Sep 16 — VIX Expiry (Wed)",    date(2026,  9, 16)),
+        ("Sep 18 — Monthly (3rd Fri)",   date(2026,  9, 18)),
+        ("Sep 30 — Quarter-End",         date(2026,  9, 30)),
+        ("Oct 16 — Monthly (3rd Fri)",   date(2026, 10, 16)),
+        ("Oct 21 — VIX Expiry (Wed)",    date(2026, 10, 21)),
+        ("Nov 18 — VIX Expiry (Wed)",    date(2026, 11, 18)),
+        ("Nov 20 — Monthly (3rd Fri)",   date(2026, 11, 20)),
+        ("Dec 16 — VIX Expiry (Wed)",    date(2026, 12, 16)),
+        ("Dec 18 — Monthly (3rd Fri)",   date(2026, 12, 18)),
+        ("Dec 31 — Quarter-End",         date(2026, 12, 31)),
+    ]
+
+    # Next standard Friday default
+    days_to_friday = (4 - today.weekday()) % 7 or 7
+    next_friday = today + timedelta(days=days_to_friday)
+
+    upcoming = [(label, d) for label, d in sorted(CBOE_2026, key=lambda x: x[1]) if d >= today]
+    cboe_labels = [label for label, _ in upcoming] + ["📅 Custom date…"]
+    cboe_dates  = {label: d for label, d in upcoming}
+
+    # Pre-select the nearest upcoming CBOE date
+    default_label = next((label for label, d in upcoming if d >= today), cboe_labels[0])
+    selected_label = st.selectbox(
         "Target Expiration Date",
-        value=next_monday,
-        help="The expiry to scan. Feb 23 = Monday weekly.",
+        cboe_labels,
+        index=cboe_labels.index(default_label),
+        help="CBOE 2026 standard monthly (3rd Fri), VIX Wednesday, and quarter-end dates.",
     )
+
+    if selected_label == "📅 Custom date…":
+        target_expiry = st.date_input("Custom expiry", value=next_friday)
+    else:
+        target_expiry = cboe_dates[selected_label]
+        st.caption(f"📆 {target_expiry.strftime('%A, %B %-d, %Y')}")
+
     expiry_str = target_expiry.strftime("%Y-%m-%d")
 
     st.divider()
