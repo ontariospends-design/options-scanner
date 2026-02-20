@@ -101,18 +101,45 @@ with st.sidebar:
     st.divider()
 
     st.subheader("Signal Thresholds")
-    vol_oi_thresh = st.slider("Vol/OI Ratio threshold", 0.1, 5.0, 0.5, 0.1)
-    zscore_thresh = st.slider("Volume Z-Score threshold", 1.0, 5.0, 2.0, 0.25)
-    block_pct = st.slider("Large block percentile", 50, 99, 90, 1)
-    min_vol = st.number_input("Min Volume", min_value=1, value=100, step=10)
-    min_oi = st.number_input("Min Open Interest", min_value=0, value=10, step=10)
+    vol_oi_thresh = st.slider(
+        "Vol/OI Ratio threshold", 0.1, 5.0, 0.5, 0.1,
+        help="**Volume ÷ Open Interest.** Flags contracts where same-day trading is unusually large relative to existing positioning. 0.5 = volume is ≥50% of OI. Higher = more selective (only the most aggressive sweeps). Good default: 0.5."
+    )
+    zscore_thresh = st.slider(
+        "Volume Z-Score threshold", 1.0, 5.0, 2.0, 0.25,
+        help="**Standard deviations above mean volume** across all scanned contracts of the same type (call/put). ≥2σ means this contract traded far more than average today. Lower = catch more signals; higher = only extreme outliers. Good default: 2.0."
+    )
+    block_pct = st.slider(
+        "Large block percentile", 50, 99, 90, 1,
+        help="**Top-N% by raw volume.** A contract is flagged as a 'large block' if its volume ranks in the top (100 − N)% of all contracts scanned. At 90, only the top 10% by volume qualify. Useful for isolating institutional-sized orders."
+    )
+    min_vol = st.number_input(
+        "Min Volume", min_value=1, value=100, step=10,
+        help="**Minimum trade volume to include.** Filters out illiquid contracts with very few trades. Raise this to reduce noise; lower it if scanning thinly-traded names."
+    )
+    min_oi = st.number_input(
+        "Min Open Interest", min_value=0, value=10, step=10,
+        help="**Minimum open interest to include.** OI reflects the number of outstanding contracts. Low OI = newly positioned or thinly active. Setting this too high can exclude fresh positioning — 10 is a conservative floor."
+    )
 
     st.divider()
     st.subheader("🤖 Strategy Engine")
-    strategy_capital = st.number_input("Paper trading capital ($)", min_value=100, value=1000, step=100)
-    strategy_risk_pct = st.slider("Risk per trade (%)", 1, 10, 3, 1)
-    strategy_min_score = st.radio("Min signal score", [1, 2, 3], index=1, horizontal=True)
-    strategy_min_edge = st.slider("Min BS edge (%)", 0, 30, 5, 1)
+    strategy_capital = st.number_input(
+        "Paper trading capital ($)", min_value=100, value=1000, step=100,
+        help="**Total simulated account size.** The engine sizes each paper trade as a percentage of this amount. Does not represent real money — used only for position-sizing calculations in the ledger."
+    )
+    strategy_risk_pct = st.slider(
+        "Risk per trade (%)", 1, 10, 3, 1,
+        help="**Maximum capital to risk on a single trade**, as a % of total capital. At 3%, a $1,000 account risks $30 per trade. The engine buys as many contracts as fit within this budget (each contract = 100 shares × premium)."
+    )
+    strategy_min_score = st.radio(
+        "Min signal score", [1, 2, 3], index=1, horizontal=True,
+        help="**Composite signal score (0–3).** Each contract can trigger up to 3 flags: Vol/OI ratio, Z-Score, and Large Block. Score 3 = all three firing simultaneously (highest conviction). Score 1 = at least one signal — more candidates, more noise."
+    )
+    strategy_min_edge = st.slider(
+        "Min BS edge (%)", 0, 30, 5, 1,
+        help="**Black-Scholes theoretical edge vs. market mid-price**, as a percentage. Edge > 0 means the model prices the option higher than the market ask — potentially underpriced. Higher threshold = only show contracts where the model sees significant mispricing. Note: BS edge is an estimate and assumes constant IV."
+    )
 
     run_scan = st.button("🔍 Run Scan", type="primary", use_container_width=True)
 

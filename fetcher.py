@@ -9,11 +9,32 @@ import time
 
 # Top 50 most actively traded options tickers for broad scan
 BROAD_SCAN_TICKERS = [
+    # Core ETFs
     "SPY", "QQQ", "IWM", "DIA", "GLD", "SLV", "TLT", "XLF", "XLE", "XLK",
+    "XLV", "XLU", "XLI", "XLY", "XLC", "EEM", "EFA", "GDX", "USO", "ARKK",
+    # Mega-cap tech
     "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", "PLTR", "NFLX",
-    "BAC", "JPM", "GS", "MS", "C", "WFC", "XOM", "CVX", "BABA", "COIN",
-    "MSTR", "SMCI", "ARM", "AVGO", "MU", "INTC", "TSM", "ORCL", "CRM", "UBER",
-    "SHOP", "MARA", "RIOT", "HUT", "CLSK", "GME", "AMC", "RIVN", "LCID", "F",
+    "AVGO", "ORCL", "CRM", "NOW", "SNOW", "CRWD", "PANW", "NET", "DDOG", "ZS",
+    # Financials
+    "BAC", "JPM", "GS", "MS", "C", "WFC", "V", "MA", "PYPL", "COIN",
+    # Energy / Materials
+    "XOM", "CVX", "OXY", "SLB", "HAL",
+    # Consumer / Retail
+    "WMT", "COST", "TGT", "NKE", "DIS",
+    # Healthcare / Biotech
+    "UNH", "LLY", "ABBV", "PFE", "MRNA",
+    # Semis / Hardware
+    "MU", "INTC", "TSM", "SMCI", "ARM",
+    # Mobility / Transport
+    "UBER", "LYFT", "GM", "F", "RIVN",
+    # Crypto-adjacent / High-vol
+    "MSTR", "MARA", "RIOT", "HUT", "CLSK",
+    # Meme / Retail favorites
+    "GME", "AMC", "BABA", "LCID", "NIO",
+    # Fintech / Social
+    "SOFI", "HOOD", "SQ", "SNAP", "RBLX",
+    # Additional high-volume names
+    "SHOP", "BA", "CAT", "ABNB", "DASH", "LULU", "ADBE", "SPOT", "MELI", "TTD",
 ]
 
 VIX_TICKER = "^VIX"
