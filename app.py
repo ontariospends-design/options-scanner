@@ -324,13 +324,17 @@ if not unusual_df.empty and "strike" in unusual_df.columns:
     pnl_sub = unusual_df[unusual_df["underlying"] == pnl_sel_ticker].copy()
 
     if not pnl_sub.empty:
+        pnl_sub = pnl_sub.reset_index(drop=True)
         pnl_sub["label"] = (
             pnl_sub["option_type"].str.upper() + " $"
             + pnl_sub["strike"].astype(str)
+            + " exp " + pnl_sub["expiration_date"].astype(str)
             + " (score " + pnl_sub["signal_score"].astype(str) + ")"
         )
-        pnl_sel_label = col_pb.selectbox("Contract", pnl_sub["label"].tolist(), key="pnl_contract")
-        row = pnl_sub[pnl_sub["label"] == pnl_sel_label].iloc[0]
+        pnl_labels = pnl_sub["label"].tolist()
+        pnl_idx = col_pb.selectbox("Contract", range(len(pnl_labels)),
+                                   format_func=lambda i: pnl_labels[i], key="pnl_contract")
+        row = pnl_sub.iloc[pnl_idx]
 
         S   = spot_prices.get(pnl_sel_ticker)
         K   = float(row["strike"])
@@ -341,7 +345,9 @@ if not unusual_df.empty and "strike" in unusual_df.columns:
         T   = time_to_expiry(exp)
 
         if S and iv > 0 and mid > 0:
-            summary = pnl_summary(S, K, T, 0.045, iv, opt, mid)
+            # Floor T at 1 hour so Greeks remain meaningful on expiry day
+            T_eff = max(T, 1.0 / (365 * 24))
+            summary = pnl_summary(S, K, T_eff, 0.045, iv, opt, mid)
             g = summary["greeks"]
 
             mc1, mc2, mc3, mc4, mc5 = st.columns(5)
