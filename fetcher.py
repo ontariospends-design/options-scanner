@@ -9,19 +9,19 @@ import time
 
 # Sector-organised tickers for targeted scans
 SECTOR_TICKERS = {
-    "🏭 Sector ETFs":          ["DIA", "GLD", "SLV", "TLT", "XLF", "XLE", "XLK", "XLV", "XLU", "XLI", "XLY", "XLC", "EEM", "EFA", "GDX", "USO", "ARKK"],
-    "💻 Mega-Cap Tech":        ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", "PLTR", "NFLX", "ADBE", "ORCL"],
-    "🔬 Semis & Hardware":     ["AVGO", "MU", "INTC", "TSM", "SMCI", "ARM", "QCOM", "AMAT", "KLAC"],
-    "🛡️ Cybersecurity":        ["CRWD", "PANW", "NET", "DDOG", "ZS", "FTNT", "S", "OKTA"],
-    "🏦 Financials":           ["BAC", "JPM", "GS", "MS", "C", "WFC", "V", "MA", "PYPL", "COIN"],
-    "⚡ Energy & Materials":   ["XOM", "CVX", "OXY", "SLB", "HAL", "COP", "BP"],
-    "🛒 Consumer & Retail":    ["WMT", "COST", "TGT", "NKE", "DIS", "LULU", "SHOP", "SBUX", "AMZN"],
-    "💊 Healthcare & Biotech": ["UNH", "LLY", "ABBV", "PFE", "MRNA", "GILD", "BMY", "AMGN"],
-    "⚙️ Industrials":          ["BA", "CAT", "GE", "HON", "RTX", "DE", "UPS", "FDX"],
-    "🚗 Transport & Mobility": ["UBER", "LYFT", "GM", "F", "RIVN", "ABNB", "DASH", "LCID"],
-    "₿ Crypto & High-Vol":    ["MSTR", "MARA", "RIOT", "HUT", "CLSK", "COIN"],
-    "📱 Fintech & Social":     ["SQ", "HOOD", "SOFI", "SNAP", "RBLX", "SPOT", "TTD", "MELI"],
-    "🎮 Meme & Retail Faves": ["GME", "AMC", "BABA", "NIO", "PLTR"],
+    "Sector ETFs":          ["DIA", "GLD", "SLV", "TLT", "XLF", "XLE", "XLK", "XLV", "XLU", "XLI", "XLY", "XLC", "EEM", "EFA", "GDX", "USO", "ARKK"],
+    "Mega-Cap Tech":        ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", "PLTR", "NFLX", "ADBE", "ORCL"],
+    "Semis & Hardware":     ["AVGO", "MU", "INTC", "TSM", "SMCI", "ARM", "QCOM", "AMAT", "KLAC"],
+    "Cybersecurity":        ["CRWD", "PANW", "NET", "DDOG", "ZS", "FTNT", "S", "OKTA"],
+    "Financials":           ["BAC", "JPM", "GS", "MS", "C", "WFC", "V", "MA", "PYPL", "COIN"],
+    "Energy & Materials":   ["XOM", "CVX", "OXY", "SLB", "HAL", "COP", "BP"],
+    "Consumer & Retail":    ["WMT", "COST", "TGT", "NKE", "DIS", "LULU", "SHOP", "SBUX", "AMZN"],
+    "Healthcare & Biotech": ["UNH", "LLY", "ABBV", "PFE", "MRNA", "GILD", "BMY", "AMGN"],
+    "Industrials":          ["BA", "CAT", "GE", "HON", "RTX", "DE", "UPS", "FDX"],
+    "Transport & Mobility": ["UBER", "LYFT", "GM", "F", "RIVN", "ABNB", "DASH", "LCID"],
+    "Crypto & High-Vol":    ["MSTR", "MARA", "RIOT", "HUT", "CLSK", "COIN"],
+    "Fintech & Social":     ["SQ", "HOOD", "SOFI", "SNAP", "RBLX", "SPOT", "TTD", "MELI"],
+    "Meme & Retail Faves":  ["GME", "AMC", "BABA", "NIO", "PLTR"],
 }
 
 # Flat list for any code that still needs it
