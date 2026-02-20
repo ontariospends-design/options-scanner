@@ -168,10 +168,18 @@ for i, ticker in enumerate(tickers):
     progress.progress((i + 1) / len(tickers), text=f"Fetching {ticker}…")
     try:
         df = client.get_option_chain(ticker, expiry_str)
+        # If no chain for selected date, find the nearest available expiry
+        if df.empty:
+            available = client.get_option_expirations(ticker)
+            nearest = next((e for e in sorted(available) if e >= expiry_str), None)
+            if nearest and nearest != expiry_str:
+                df = client.get_option_chain(ticker, nearest)
+                if not df.empty:
+                    errors.append(f"{ticker}: no chain for {expiry_str} — using nearest expiry {nearest} instead")
         if not df.empty:
             frames.append(df)
         else:
-            errors.append(f"{ticker}: no chain data for {expiry_str}")
+            errors.append(f"{ticker}: no chain data available near {expiry_str}")
     except Exception as e:
         errors.append(f"{ticker}: {e}")
 
