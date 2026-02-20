@@ -127,22 +127,16 @@ if custom_raw.strip():
     tickers += [t.strip().upper() for t in custom_raw.split(",") if t.strip() and t.strip().upper() not in tickers]
 tickers = list(dict.fromkeys(tickers))
 
-# ── Pre-scan info ──────────────────────────────────────────────────────────────
-if not run_scan:
+# ── Pre-scan info (no cached results yet) ─────────────────────────────────────
+has_results = "scan_results" in st.session_state
+
+if not has_results and not run_scan:
     st.info(
         f"**Target expiry:** `{expiry_str}`  |  "
         f"**Tickers queued:** {', '.join(tickers) if tickers else 'none selected'}\n\n"
         "Configure settings in the sidebar and click **Run Scan**.",
         icon="ℹ️",
     )
-    with st.expander("ℹ️ How to get a free Tradier API key"):
-        st.markdown("""
-1. Go to **https://developer.tradier.com/**
-2. Click **Get an API Token** → sign up free
-3. Copy your **sandbox token** from the dashboard
-4. Paste it in the sidebar with **Use Sandbox** ON
-5. For live data, use a production token from a Tradier brokerage account
-        """)
     with st.expander("📖 Signal definitions"):
         st.markdown("""
 | Signal | Definition |
@@ -160,79 +154,96 @@ if not tickers:
     st.warning("No tickers selected.")
     st.stop()
 
-# ── Fetch ──────────────────────────────────────────────────────────────────────
-cfg = AnalysisConfig(
-    vol_oi_ratio_threshold=vol_oi_thresh,
-    zscore_threshold=zscore_thresh,
-    large_block_percentile=float(block_pct),
-    min_volume=int(min_vol),
-    min_oi=int(min_oi),
-)
+# ── Fetch & analyze (only on button press) ────────────────────────────────────
+if run_scan:
+    cfg = AnalysisConfig(
+        vol_oi_ratio_threshold=vol_oi_thresh,
+        zscore_threshold=zscore_thresh,
+        large_block_percentile=float(block_pct),
+        min_volume=int(min_vol),
+        min_oi=int(min_oi),
+    )
 
-client = YFinanceClient()
-progress = st.progress(0, text="Fetching options chains…")
-frames, errors = [], []
+    client = YFinanceClient()
+    progress = st.progress(0, text="Fetching options chains…")
+    frames, errors = [], []
 
-for i, ticker in enumerate(tickers):
-    progress.progress((i + 1) / len(tickers), text=f"Fetching {ticker}…")
-    try:
-        df = client.get_option_chain(ticker, expiry_str)
-        # If no chain for selected date, find the nearest available expiry
-        if df.empty:
-            available = client.get_option_expirations(ticker)
-            nearest = next((e for e in sorted(available) if e >= expiry_str), None)
-            if nearest and nearest != expiry_str:
-                df = client.get_option_chain(ticker, nearest)
-                if not df.empty:
-                    errors.append(f"{ticker}: no chain for {expiry_str} — using nearest expiry {nearest} instead")
-        if not df.empty:
-            frames.append(df)
-        else:
-            errors.append(f"{ticker}: no chain data available near {expiry_str}")
-    except Exception as e:
-        errors.append(f"{ticker}: {e}")
+    for i, ticker in enumerate(tickers):
+        progress.progress((i + 1) / len(tickers), text=f"Fetching {ticker}…")
+        try:
+            df = client.get_option_chain(ticker, expiry_str)
+            if df.empty:
+                available = client.get_option_expirations(ticker)
+                nearest = next((e for e in sorted(available) if e >= expiry_str), None)
+                if nearest and nearest != expiry_str:
+                    df = client.get_option_chain(ticker, nearest)
+                    if not df.empty:
+                        errors.append(f"{ticker}: no chain for {expiry_str} — using nearest {nearest}")
+            if not df.empty:
+                frames.append(df)
+            else:
+                errors.append(f"{ticker}: no chain data available near {expiry_str}")
+        except Exception as e:
+            errors.append(f"{ticker}: {e}")
 
-progress.empty()
+    progress.empty()
 
-if errors:
-    with st.expander(f"⚠️ {len(errors)} fetch warning(s)"):
-        for e in errors:
+    if not frames:
+        st.error("No data returned for any ticker. Try a different expiry date or ticker list.")
+        st.stop()
+
+    raw_df = pd.concat(frames, ignore_index=True)
+
+    # Spot prices
+    spot_prices = {}
+    equity_tickers = [t for t in tickers if t != VIX_TICKER]
+    if equity_tickers:
+        try:
+            quotes_df = client.get_quotes(equity_tickers)
+            if not quotes_df.empty and "symbol" in quotes_df.columns:
+                spot_prices = dict(zip(quotes_df["symbol"], quotes_df["last"]))
+        except Exception:
+            pass
+    for ticker in tickers:
+        if ticker not in spot_prices:
+            sub = raw_df[raw_df["underlying"] == ticker]
+            if not sub.empty and "strike" in sub.columns:
+                mid_strike = sub["strike"].median()
+                if pd.notna(mid_strike):
+                    spot_prices[ticker] = float(mid_strike)
+
+    analyzed_df = compute_signals(raw_df, cfg)
+    pc_df       = put_call_summary(analyzed_df)
+    unusual_df  = top_unusual(analyzed_df, n=200)
+
+    st.session_state["scan_results"] = {
+        "analyzed_df": analyzed_df,
+        "unusual_df":  unusual_df,
+        "pc_df":       pc_df,
+        "spot_prices": spot_prices,
+        "expiry_str":  expiry_str,
+        "tickers":     tickers,
+        "errors":      errors,
+    }
+
+# ── Load from cache ────────────────────────────────────────────────────────────
+res         = st.session_state["scan_results"]
+analyzed_df = res["analyzed_df"]
+unusual_df  = res["unusual_df"]
+pc_df       = res["pc_df"]
+spot_prices = res["spot_prices"]
+expiry_str  = res["expiry_str"]
+tickers     = res["tickers"]
+scan_errors = res["errors"]
+
+if scan_errors:
+    with st.expander(f"⚠️ {len(scan_errors)} fetch warning(s)"):
+        for e in scan_errors:
             st.warning(e)
 
-if not frames:
-    st.error(
-        "No data returned. Possible causes:\n"
-        "- Expiration date doesn't exist for these tickers\n"
-        "- Invalid API key\n"
-        "- Tradier sandbox not returning data for this date"
-    )
-    st.stop()
-
-raw_df = pd.concat(frames, ignore_index=True)
-
-# ── Fetch spot prices for strategy engine ──────────────────────────────────────
-spot_prices = {}
-equity_tickers = [t for t in tickers if t != VIX_TICKER]
-if equity_tickers:
-    try:
-        quotes_df = client.get_quotes(equity_tickers)
-        if not quotes_df.empty and "symbol" in quotes_df.columns:
-            spot_prices = dict(zip(quotes_df["symbol"], quotes_df["last"]))
-    except Exception:
-        pass
-# Fallback: estimate spot from ATM strikes if quote fetch failed
-for ticker in tickers:
-    if ticker not in spot_prices:
-        sub = raw_df[raw_df["underlying"] == ticker]
-        if not sub.empty and "strike" in sub.columns:
-            mid_strike = sub["strike"].median()
-            if pd.notna(mid_strike):
-                spot_prices[ticker] = float(mid_strike)
-
-# ── Analyze ────────────────────────────────────────────────────────────────────
-analyzed_df = compute_signals(raw_df, cfg)
-pc_df = put_call_summary(analyzed_df)
-unusual_df = top_unusual(analyzed_df, n=200)
+# stale-data notice when sidebar config differs from cached scan
+if run_scan is False and expiry_str != target_expiry.strftime("%Y-%m-%d"):
+    st.warning("⚠️ Showing results from a previous scan. Press **Run Scan** to refresh.", icon="🔄")
 
 # ── Summary metrics ────────────────────────────────────────────────────────────
 total_contracts = len(analyzed_df)
@@ -295,23 +306,26 @@ st.subheader(f"🚨 Unusual Contracts — Expiring {expiry_str}")
 if unusual_df.empty:
     st.info("No unusual contracts found. Try lowering the Vol/OI or Z-Score thresholds.")
 else:
-    min_score = st.radio("Minimum signal score:", [0, 1, 2, 3], horizontal=True, index=0)
+    min_score = st.radio("Minimum signal score:", [0, 1, 2, 3], horizontal=True, index=0, key="unusual_min_score")
     filtered = unusual_df[unusual_df["signal_score"] >= min_score] if "signal_score" in unusual_df.columns else unusual_df
 
-    col_cfg = {}
-    if "vol_oi_ratio" in filtered.columns:
-        col_cfg["vol_oi_ratio"] = st.column_config.NumberColumn("Vol/OI", format="%.2f")
-    if "vol_zscore" in filtered.columns:
-        col_cfg["vol_zscore"] = st.column_config.NumberColumn("Z-Score", format="%.2f")
-    if "mid_iv" in filtered.columns:
-        col_cfg["mid_iv"] = st.column_config.NumberColumn("IV", format="%.1%")
-    if "delta" in filtered.columns:
-        col_cfg["delta"] = st.column_config.NumberColumn("Delta", format="%.3f")
-    if "signal_score" in filtered.columns:
-        col_cfg["signal_score"] = st.column_config.ProgressColumn("Score", min_value=0, max_value=3)
+    if filtered.empty:
+        st.info(f"No contracts with signal score ≥ {min_score}. Try a lower threshold.")
+    else:
+        col_cfg = {}
+        if "vol_oi_ratio" in filtered.columns:
+            col_cfg["vol_oi_ratio"] = st.column_config.NumberColumn("Vol/OI", format="%.2f")
+        if "vol_zscore" in filtered.columns:
+            col_cfg["vol_zscore"] = st.column_config.NumberColumn("Z-Score", format="%.2f")
+        if "mid_iv" in filtered.columns:
+            col_cfg["mid_iv"] = st.column_config.NumberColumn("IV", format="%.1%")
+        if "delta" in filtered.columns:
+            col_cfg["delta"] = st.column_config.NumberColumn("Delta", format="%.3f")
+        if "signal_score" in filtered.columns:
+            col_cfg["signal_score"] = st.column_config.ProgressColumn("Score", min_value=0, max_value=3)
 
-    st.dataframe(filtered, use_container_width=True, hide_index=True, column_config=col_cfg)
-    st.caption(f"Showing {len(filtered)} unusual contracts (score ≥ {min_score})")
+        st.dataframe(filtered, use_container_width=True, hide_index=True, column_config=col_cfg)
+        st.caption(f"Showing {len(filtered)} unusual contracts (score ≥ {min_score})")
 
 # ── P&L Analysis ──────────────────────────────────────────────────────────────
 st.divider()
@@ -400,7 +414,6 @@ st.divider()
 # ── Strategy Engine ────────────────────────────────────────────────────────────
 st.subheader("🤖 Strategy Engine — Trade Candidates")
 
-# Init paper ledger in session state
 if "paper_trades" not in st.session_state:
     st.session_state["paper_trades"] = []
 ledger = PaperLedger(st.session_state["paper_trades"])
@@ -413,44 +426,70 @@ engine = StrategyEngine(
 )
 
 candidates = engine.screen(unusual_df, spot_prices)
-cand_df = engine.to_dataframe(candidates)
 
-if cand_df.empty:
-    st.info("No candidates met the strategy criteria. Try lowering Min Score or Min BS Edge in the sidebar.")
+if not candidates:
+    st.info("No candidates met the strategy criteria. Try lowering **Min Score** or **Min BS Edge** in the sidebar.")
 else:
+    budget_per_trade = strategy_capital * strategy_risk_pct / 100
     st.caption(
-        f"**{len(cand_df)} trade candidates** ranked by signal score + BS edge  |  "
-        f"Capital: ${strategy_capital:,}  |  Risk/trade: {strategy_risk_pct}%  |  "
-        f"Budget/trade: ${strategy_capital * strategy_risk_pct / 100:,.0f}"
+        f"**{len(candidates)} candidates** · Capital **${strategy_capital:,}** · "
+        f"Risk/trade **{strategy_risk_pct}%** (${budget_per_trade:,.0f}) · "
+        f"Ranked by signal score + BS edge"
     )
+
+    # ── Candidate cards ───────────────────────────────────────────────────────
+    for i, c in enumerate(candidates[:10]):  # show top 10 as cards
+        score_bar = "🟥" * c.signal_score + "⬜" * (3 - c.signal_score)
+        edge_sign = "+" if c.edge_pct >= 0 else ""
+        bias = "📈 CALL" if c.option_type == "call" else "📉 PUT"
+        with st.container(border=True):
+            card_c1, card_c2, card_c3, card_c4, card_c5, card_c6 = st.columns([2, 1, 1, 1, 1, 1])
+            card_c1.markdown(
+                f"**{c.underlying}** {bias} `${c.strike}` · exp `{c.expiration_date}`\n\n"
+                f"{score_bar} &nbsp; {c.rationale}"
+            )
+            card_c2.metric("Signal", f"{c.signal_score}/3")
+            card_c3.metric("BS Edge", f"{edge_sign}{c.edge_pct:.1f}%",
+                           delta_color="normal" if c.edge_pct >= 0 else "inverse")
+            card_c4.metric("Mid", f"${c.market_mid:.3f}")
+            card_c5.metric("Contracts", c.contracts)
+            card_c6.metric("Est. Cost", f"${c.estimated_cost:,.0f}")
+
+            if st.button(f"➕ Paper trade #{i+1}", key=f"enter_{i}", use_container_width=False):
+                trade = ledger.enter(c)
+                st.session_state["paper_trades"] = ledger.to_serializable()
+                st.success(f"Entered: {trade.underlying} {trade.option_type.upper()} "
+                           f"${trade.strike} × {trade.contracts} ct @ ${trade.entry_price:.3f}")
+                st.rerun()
+
+# ── Paper Ledger ──────────────────────────────────────────────────────────────
+st.subheader("📋 Paper Trade Ledger")
+ledger = PaperLedger(st.session_state.get("paper_trades", []))
+ledger_df = ledger.to_dataframe()
+
+if ledger_df.empty:
+    st.caption("No paper trades yet. Use the strategy candidates above to enter a position.")
+else:
+    summ = ledger.summary()
+    sm1, sm2, sm3, sm4, sm5 = st.columns(5)
+    sm1.metric("Total Trades", summ["total_trades"])
+    sm2.metric("Open",         summ["open"])
+    sm3.metric("Closed",       summ["closed"])
+    sm4.metric("Realized P&L", f"${summ['realized_pnl']:+,.2f}",
+               delta_color="normal" if summ["realized_pnl"] >= 0 else "inverse")
+    sm5.metric("Win Rate",     f"{summ['win_rate']:.1f}%")
+
     st.dataframe(
-        cand_df,
+        ledger_df,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "signal_score":    st.column_config.ProgressColumn("Score", min_value=0, max_value=3),
-            "edge_pct":        st.column_config.NumberColumn("BS Edge %", format="%+.1f%%"),
-            "mid_iv":          st.column_config.NumberColumn("IV", format="%.1%%"),
-            "market_mid":      st.column_config.NumberColumn("Mid $", format="$%.3f"),
-            "bs_price":        st.column_config.NumberColumn("BS Price", format="$%.3f"),
-            "estimated_cost":  st.column_config.NumberColumn("Est. Cost", format="$%.0f"),
-            "vol_oi_ratio":    st.column_config.NumberColumn("Vol/OI", format="%.2f"),
+            "pnl":         st.column_config.NumberColumn("P&L", format="$%+.2f"),
+            "total_cost":  st.column_config.NumberColumn("Cost", format="$%.2f"),
+            "entry_price": st.column_config.NumberColumn("Entry", format="$%.3f"),
+            "exit_price":  st.column_config.NumberColumn("Exit", format="$%.3f"),
         },
     )
-
-    st.subheader("📋 Paper Trading")
-    paper_col1, paper_col2 = st.columns([2, 1])
-    cand_labels = [
-        f"{c.underlying} {c.option_type.upper()} ${c.strike} exp {c.expiration_date} — "
-        f"{c.contracts} ct @ ${c.market_mid:.3f} (cost ${c.estimated_cost:,.0f})"
-        for c in candidates
-    ]
-    sel_cand = paper_col1.selectbox("Select a candidate to paper trade:", cand_labels)
-    if paper_col2.button("➕ Enter Paper Trade", use_container_width=True):
-        idx = cand_labels.index(sel_cand)
-        trade = ledger.enter(candidates[idx])
-        st.session_state["paper_trades"] = ledger.to_serializable()
-        st.success(f"Entered: {trade.underlying} {trade.option_type.upper()} ${trade.strike} × {trade.contracts} contracts @ ${trade.entry_price:.3f}")
 
     # Close a trade
     open_trades = [t for t in ledger._trades if t.status == "OPEN"]
@@ -466,33 +505,9 @@ else:
             st.session_state["paper_trades"] = ledger.to_serializable()
             st.rerun()
 
-    # Ledger summary
-    ledger_df = ledger.to_dataframe()
-    if not ledger_df.empty:
-        summ = ledger.summary()
-        sm1, sm2, sm3, sm4, sm5 = st.columns(5)
-        sm1.metric("Total Trades",    summ["total_trades"])
-        sm2.metric("Open",            summ["open"])
-        sm3.metric("Closed",          summ["closed"])
-        sm4.metric("Realized P&L",    f"${summ['realized_pnl']:+,.2f}",
-                   delta_color="normal" if summ["realized_pnl"] >= 0 else "inverse")
-        sm5.metric("Win Rate",        f"{summ['win_rate']:.1f}%")
-
-        st.dataframe(
-            ledger_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "pnl":         st.column_config.NumberColumn("P&L", format="$%+.2f"),
-                "total_cost":  st.column_config.NumberColumn("Cost", format="$%.2f"),
-                "entry_price": st.column_config.NumberColumn("Entry", format="$%.3f"),
-                "exit_price":  st.column_config.NumberColumn("Exit", format="$%.3f"),
-            },
-        )
-
-        if st.button("🗑️ Clear all paper trades"):
-            st.session_state["paper_trades"] = []
-            st.rerun()
+    if st.button("🗑️ Clear all paper trades"):
+        st.session_state["paper_trades"] = []
+        st.rerun()
 
 st.divider()
 
