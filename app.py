@@ -12,7 +12,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta
-from fetcher import YFinanceClient, BROAD_SCAN_TICKERS, VIX_TICKER
+from fetcher import YFinanceClient, SECTOR_TICKERS, BROAD_SCAN_TICKERS, VIX_TICKER
 from analyzer import compute_signals, put_call_summary, top_unusual, AnalysisConfig
 from pnl import pnl_summary, pnl_at_expiry, time_to_expiry
 from strategy import StrategyEngine, PaperLedger
@@ -95,7 +95,17 @@ with st.sidebar:
     st.subheader("Tickers to Scan")
     scan_spy_qqq = st.checkbox("SPY / QQQ / IWM", value=True)
     scan_vix = st.checkbox("VIX Options", value=True)
-    scan_broad = st.checkbox("Broad Scan (top 50)", value=False)
+
+    with st.expander("📂 Sector Scan", expanded=False):
+        st.caption("Pick sectors to add to the scan. Each sector is ~8–12 tickers — select only what you need to keep scans fast.")
+        scan_sectors = {}
+        for _sname, _stickers in SECTOR_TICKERS.items():
+            scan_sectors[_sname] = st.checkbox(
+                f"{_sname}  ({len(_stickers)})",
+                value=False,
+                key=f"sector__{_sname}",
+            )
+
     custom_raw = st.text_input("Custom tickers (comma-separated)", placeholder="NVDA, TSLA")
 
     st.divider()
@@ -149,8 +159,9 @@ if scan_spy_qqq:
     tickers += ["SPY", "QQQ", "IWM"]
 if scan_vix:
     tickers += [VIX_TICKER]
-if scan_broad:
-    tickers += [t for t in BROAD_SCAN_TICKERS if t not in tickers]
+for _sname, _selected in scan_sectors.items():
+    if _selected:
+        tickers += [t for t in SECTOR_TICKERS[_sname] if t not in tickers]
 if custom_raw.strip():
     tickers += [t.strip().upper() for t in custom_raw.split(",") if t.strip() and t.strip().upper() not in tickers]
 tickers = list(dict.fromkeys(tickers))
