@@ -145,7 +145,6 @@ def large_block_summary(analyzed_df: pd.DataFrame) -> pd.DataFrame:
         top_put_strike  = float(top_put_row["strike"])  if top_put_row  is not None else None
 
         # Notional estimate: volume × mid × 100 shares
-        notional = float(grp["volume"].fillna(0) * grp.get("mid", pd.Series(0, index=grp.index)).fillna(0) * 100)  # noqa
         notional = float((grp["volume"].fillna(0) * grp.get("mid", pd.Series(0, index=grp.index)).fillna(0) * 100).sum())
 
         pc = round(p_vol / c_vol, 3) if c_vol > 0 else None
