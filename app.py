@@ -348,6 +348,12 @@ if not unusual_df.empty and "strike" in unusual_df.columns:
     pnl_tickers = unusual_df["underlying"].unique().tolist()
     col_pa, col_pb = st.columns(2)
     pnl_sel_ticker = col_pa.selectbox("Underlying", pnl_tickers, key="pnl_ticker")
+
+    # Reset contract index when underlying changes
+    if st.session_state.get("_pnl_ticker_prev") != pnl_sel_ticker:
+        st.session_state["pnl_contract"] = 0
+        st.session_state["_pnl_ticker_prev"] = pnl_sel_ticker
+
     pnl_sub = unusual_df[unusual_df["underlying"] == pnl_sel_ticker].copy()
 
     if not pnl_sub.empty:
